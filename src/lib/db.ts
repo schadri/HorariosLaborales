@@ -126,20 +126,29 @@ let mockSchedules: DaySchedule[] = [
 let pool: Pool | null = null;
 let usePostgres = false;
 
-// Attempt to initialize PG pool if DATABASE_URL is present
-if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost:5432')) {
-  try {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_URL.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
-      connectionTimeoutMillis: 3000
-    });
-    usePostgres = true;
-  } catch (e) {
-    console.warn('PostgreSQL pool creation fallback:', e);
-    usePostgres = false;
+function getDbPool(): Pool | null {
+  if (!pool && process.env.DATABASE_URL) {
+    try {
+      const isSsl = process.env.DATABASE_URL.includes('sslmode=require') || 
+                    process.env.DATABASE_URL.includes('neon.tech') || 
+                    process.env.DATABASE_URL.includes('aws.neon.tech');
+      pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+        connectionTimeoutMillis: 10000,
+        max: 10
+      });
+      usePostgres = true;
+    } catch (e) {
+      console.warn('PostgreSQL pool creation fallback:', e);
+      usePostgres = false;
+    }
   }
+  return pool;
 }
+
+// Initial attempt
+getDbPool();
 
 /**
  * Get all employees
