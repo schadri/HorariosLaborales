@@ -96,19 +96,15 @@ export const DayCard: React.FC<DayCardProps> = ({
       <div className="w-full max-w-sm flex flex-col items-center text-center z-10 pt-4">
         
         {/* Today badge if applicable */}
-        {isToday ? (
+        {isToday && (
           <motion.div 
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="mb-2 px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-400/40 flex items-center gap-1.5"
+            className="mb-3 px-3.5 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-400/40 flex items-center gap-1.5"
           >
             <span className="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
-            <span>HOY • {dayNumber} {monthShort}</span>
+            <span>HOY</span>
           </motion.div>
-        ) : (
-          <div className="mb-2 text-xs font-bold uppercase tracking-widest text-purple-200/80">
-            {dayNumber} de {monthShort}
-          </div>
         )}
 
         {/* Huge Bold Day Title */}

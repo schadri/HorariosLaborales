@@ -72,21 +72,57 @@ export default function DashboardPage() {
     fetchEmployees();
   }, []);
 
-  // 2. Fetch schedules whenever employee or week changes
+  // 2. Fetch schedules whenever employee changes
   const fetchSchedules = useCallback(async () => {
     if (!currentEmployee) return;
     setIsLoading(true);
     try {
       const query = new URLSearchParams({
-        employeeName: currentEmployee.name,
-        startDate: startDateStr,
-        endDate: endDateStr
+        employeeName: currentEmployee.name
       });
 
       const res = await fetch(`/api/schedules?${query.toString()}`);
       const json = await res.json();
       if (json.data && json.data.length > 0) {
-        setSchedules(json.data);
+        // Ordenar de Lunes a Domingo
+        const DAY_ORDER: Record<string, number> = {
+          'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
+          'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 7
+        };
+        const sorted = [...json.data].sort((a, b) => {
+          const orderA = DAY_ORDER[a.dayName.toLowerCase()] || 8;
+          const orderB = DAY_ORDER[b.dayName.toLowerCase()] || 8;
+          return orderA - orderB;
+        });
+
+        // Asegurarse de tener 7 días únicos (Lunes a Domingo)
+        const uniqueDaysMap = new Map();
+        for (const item of sorted) {
+          const key = item.dayName.toLowerCase();
+          uniqueDaysMap.set(key, item); // el último actualizado gana
+        }
+        
+        const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+        const final7Days = dayNames.map(dName => {
+          const match = Array.from(uniqueDaysMap.values()).find((item: any) => 
+            item.dayName.toLowerCase().replace('é', 'e').replace('á', 'a') === dName.toLowerCase().replace('é', 'e').replace('á', 'a')
+          );
+          return match || {
+            id: `day-${dName}`,
+            employeeId: currentEmployee.id,
+            employeeName: currentEmployee.name,
+            date: '2026-08-01',
+            dayName: dName,
+            timeRange: dName === 'Domingo' ? 'LIBRE' : '07:00 A 15:00',
+            startTime: '07:00',
+            endTime: '15:00',
+            isDayOff: dName === 'Domingo',
+            notes: null,
+            source: 'DEFAULT'
+          };
+        });
+
+        setSchedules(final7Days);
       } else {
         setSchedules([]);
       }
@@ -95,7 +131,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentEmployee, startDateStr, endDateStr]);
+  }, [currentEmployee]);
 
   useEffect(() => {
     fetchSchedules();
