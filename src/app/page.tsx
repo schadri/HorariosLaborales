@@ -48,6 +48,14 @@ export default function DashboardPage() {
           setEmployees(json.data);
           const urlParams = new URLSearchParams(window.location.search);
           const empParam = urlParams.get('empleado') || urlParams.get('employeeName');
+          const dateParam = urlParams.get('fecha') || urlParams.get('date');
+
+          if (dateParam) {
+            const parsedDate = new Date(dateParam + 'T12:00:00');
+            if (!isNaN(parsedDate.getTime())) {
+              setCurrentWeekDate(parsedDate);
+            }
+          }
           
           if (empParam) {
             const found = json.data.find((e: Employee) => e.name.toUpperCase().includes(empParam.toUpperCase()));
