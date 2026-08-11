@@ -1,5 +1,5 @@
 {
-  "name": "WhatsApp Schedule Vision OCR to PostgreSQL WebApp",
+  "name": "WhatsApp Schedule Vision OCR (Google Gemini Gratis / OpenAI) to PostgreSQL WebApp",
   "nodes": [
     {
       "parameters": {
@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extraer el número de teléfono, la imagen (URL o Base64) y el empleado deseado\nconst body = $input.first().json.body || $input.first().json;\n\n// Soporta payloads de Evolution API, Meta Cloud API o Twilio\nconst imageUrl = body.mediaUrl || body.imageUrl || body.data?.message?.imageMessage?.url || body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.id || \"\";\nconst rawBase64 = body.base64 || body.data?.base64 || \"\";\nconst senderPhone = body.phone || body.from || body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.wa_id || \"\";\nconst caption = body.caption || body.message || body.text || \"\";\n\n// Si el usuario escribe el nombre en el caption lo usa, si no, usa el predeterminado \"SCHUSTER ADRIAN\"\nlet targetEmployee = \"SCHUSTER ADRIAN\";\nif (caption.trim().length > 3 && !caption.toLowerCase().includes(\"http\")) {\n  targetEmployee = caption.trim().toUpperCase();\n}\n\nreturn [{\n  json: {\n    imageUrl,\n    rawBase64,\n    senderPhone,\n    targetEmployee,\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "// Extraer el número de teléfono, la imagen (URL o Base64) y el empleado deseado\nconst body = $input.first().json.body || $input.first().json;\n\n// Soporta payloads de Evolution API, Meta Cloud API o Twilio\nconst imageUrl = body.mediaUrl || body.imageUrl || body.data?.message?.imageMessage?.url || body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.id || \"\";\nconst rawBase64 = body.base64 || body.data?.base64 || \"\";\nconst senderPhone = body.phone || body.from || body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.wa_id || \"\";\nconst caption = body.caption || body.message || body.text || \"\";\n\n// Empleado por defecto: SCHUSTER ADRIAN\nlet targetEmployee = \"SCHUSTER ADRIAN\";\nif (caption.trim().length > 3 && !caption.toLowerCase().includes(\"http\")) {\n  targetEmployee = caption.trim().toUpperCase();\n}\n\nreturn [{\n  json: {\n    imageUrl,\n    rawBase64,\n    senderPhone,\n    targetEmployee,\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
       "id": "1e712345-0002-4000-8000-000000000002",
       "name": "Extract & Filter Employee",
@@ -34,16 +34,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{$env.GEMINI_API_KEY}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -52,10 +46,10 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Eres un asistente experto en OCR y visión computacional para extracción de planillas de horarios laborales. Tu tarea es analizar la imagen y extraer los horarios de los 7 días de la semana EXCLUSIVAMENTE para el empleado indicado. Ignora todas las demás filas. Debes responder con un JSON válido estrictamente estructurado.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Analiza la tabla de horarios de la imagen adjunta. Busca la fila correspondiente al empleado '\" + $json.targetEmployee + \"'. Ignora las demás filas. Extrae los horarios de los 7 días de la semana para esta persona.\\n\\nEsquema de salida JSON requerido:\\n{\\n  \\\"empleado\\\": \\\"\" + $json.targetEmployee + \"\\\",\\n  \\\"legajo\\\": \\\"número de legajo si es visible o null\\\",\\n  \\\"semana\\\": [\\n    { \\\"dia_semana\\\": \\\"Lunes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:30 A 18:30\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Martes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Miércoles\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Jueves\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Viernes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:00 A 18:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Sábado\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:00 A 18:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Domingo\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"LIBRE\\\", \\\"franco\\\": true }\\n  ]\\n}\\nSi el turno dice FRANCO, LIBRE o está vacío/marcado con descanso, coloca franco: true y horario: 'LIBRE'.\"\n        },\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": $json.imageUrl || (\"data:image/jpeg;base64,\" + $json.rawBase64)\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 1000\n}"
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"Analiza la tabla de horarios de la imagen adjunta. Busca la fila correspondiente al empleado '\" + $json.targetEmployee + \"'. Ignora las demás filas. Extrae los horarios de los 7 días de la semana para esta persona.\\n\\nEsquema de salida JSON requerido (responde estrictamente en formato JSON válido, sin markdown ni comillas triples):\\n{\\n  \\\"empleado\\\": \\\"\" + $json.targetEmployee + \"\\\",\\n  \\\"legajo\\\": \\\"número de legajo si es visible o null\\\",\\n  \\\"semana\\\": [\\n    { \\\"dia_semana\\\": \\\"Lunes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:30 A 18:30\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Martes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Miércoles\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Jueves\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Viernes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:00 A 18:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Sábado\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:00 A 18:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Domingo\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"LIBRE\\\", \\\"franco\\\": true }\\n  ]\\n}\\nSi el turno dice FRANCO, LIBRE o está vacío, coloca franco: true y horario: 'LIBRE'.\"\n        },\n        {\n          \"inline_data\": {\n            \"mime_type\": \"image/jpeg\",\n            \"data\": $json.rawBase64\n          }\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"response_mime_type\": \"application/json\"\n  }\n}"
       },
       "id": "1e712345-0003-4000-8000-000000000003",
-      "name": "OpenAI Vision OCR Node",
+      "name": "Gemini 1.5 Flash Vision (GRATIS)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -65,7 +59,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalizar respuesta de OpenAI y preparar payload para la API Next.js\nconst rawContent = $input.first().json.choices?.[0]?.message?.content || \"{}\";\nconst parsed = JSON.parse(rawContent);\n\nconst employeeName = parsed.empleado || \"SCHUSTER ADRIAN\";\nconst legajo = parsed.legajo || \"208376\";\nconst semana = parsed.semana || [];\n\n// Obtener fechas normalizadas\nconst normalizedDays = semana.map(item => {\n  let startTime = null;\n  let endTime = null;\n  \n  if (!item.franco && item.horario && item.horario.toLowerCase() !== 'libre') {\n    // Extraer horas ej: '10:30 A 18:30' o '14:00-22:00'\n    const matches = item.horario.match(/(\\d{1,2}:\\d{2})/g);\n    if (matches && matches.length >= 2) {\n      startTime = matches[0];\n      endTime = matches[1];\n    }\n  }\n\n  return {\n    date: item.fecha,\n    dayName: item.dia_semana,\n    timeRange: item.horario || (item.franco ? 'LIBRE' : '10:00 A 18:00'),\n    startTime: startTime,\n    endTime: endTime,\n    isDayOff: Boolean(item.franco || item.horario?.toUpperCase() === 'LIBRE'),\n    notes: null,\n    source: 'OCR_WHATSAPP'\n  };\n});\n\nreturn [{\n  json: {\n    employeeName,\n    legajo,\n    days: normalizedDays,\n    senderPhone: $('Extract & Filter Employee').first().json.senderPhone\n  }\n}];"
+        "jsCode": "// Normalizar respuesta de Gemini o OpenAI\nconst geminiText = $input.first().json.candidates?.[0]?.content?.parts?.[0]?.text;\nconst openAiText = $input.first().json.choices?.[0]?.message?.content;\nconst rawJsonText = geminiText || openAiText || \"{}\";\n\n// Limpiar posibles bloques ```json\nconst cleanJson = rawJsonText.replace(/```json/g, '').replace(/```/g, '').trim();\nconst parsed = JSON.parse(cleanJson);\n\nconst employeeName = parsed.empleado || $('Extract & Filter Employee').first().json.targetEmployee || \"SCHUSTER ADRIAN\";\nconst legajo = parsed.legajo || \"208376\";\nconst semana = parsed.semana || [];\n\n// Normalizar días\nconst normalizedDays = semana.map(item => {\n  let startTime = null;\n  let endTime = null;\n  \n  if (!item.franco && item.horario && item.horario.toLowerCase() !== 'libre') {\n    const matches = item.horario.match(/(\\d{1,2}:\\d{2})/g);\n    if (matches && matches.length >= 2) {\n      startTime = matches[0];\n      endTime = matches[1];\n    }\n  }\n\n  return {\n    date: item.fecha,\n    dayName: item.dia_semana,\n    timeRange: item.horario || (item.franco ? 'LIBRE' : '10:00 A 18:00'),\n    startTime: startTime,\n    endTime: endTime,\n    isDayOff: Boolean(item.franco || item.horario?.toUpperCase() === 'LIBRE'),\n    notes: null,\n    source: 'OCR_WHATSAPP'\n  };\n});\n\nreturn [{\n  json: {\n    employeeName,\n    legajo,\n    days: normalizedDays,\n    senderPhone: $('Extract & Filter Employee').first().json.senderPhone\n  }\n}];"
       },
       "id": "1e712345-0004-4000-8000-000000000004",
       "name": "Parse & Validate JSON",
@@ -140,14 +134,14 @@
       "main": [
         [
           {
-            "node": "OpenAI Vision OCR Node",
+            "node": "Gemini 1.5 Flash Vision (GRATIS)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI Vision OCR Node": {
+    "Gemini 1.5 Flash Vision (GRATIS)": {
       "main": [
         [
           {
