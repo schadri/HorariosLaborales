@@ -139,26 +139,16 @@ export const TopNavMenu: React.FC<TopNavMenuProps> = ({
 
               <div className="mt-5 space-y-5">
                 
-                {/* 1. Selector de Empleado */}
-                <div>
-                  <label className="text-xs font-bold text-purple-200 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-                    <User className="w-3.5 h-3.5" />
-                    Empleado Activo:
-                  </label>
-                  <select
-                    className="w-full px-4 py-3 rounded-2xl bg-slate-900/90 border border-white/15 text-white font-bold text-sm focus:outline-none focus:border-purple-400"
-                    value={currentEmployee?.name || ''}
-                    onChange={(e) => {
-                      const found = employees.find(emp => emp.name === e.target.value);
-                      if (found) onSelectEmployee(found);
-                    }}
-                  >
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.name} className="bg-slate-900 text-white">
-                        {emp.name} {emp.legajo ? `(Legajo: ${emp.legajo})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                {/* 1. Empleado Fijo */}
+                <div className="p-3.5 rounded-2xl bg-purple-950/60 border border-purple-500/25 flex items-center justify-between">
+                  <div>
+                    <div className="text-[11px] font-bold text-purple-300 uppercase tracking-wider">Empleado Titular</div>
+                    <div className="text-base font-black text-white font-display">SCHUSTER ADRIAN</div>
+                    <div className="text-xs text-purple-200/70 font-semibold">Legajo: 208376 • Operaciones</div>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-purple-600/30 border border-purple-400/30 flex items-center justify-center text-purple-200">
+                    <User className="w-5 h-5" />
+                  </div>
                 </div>
 
                 {/* 2. Selector de Semanas */}

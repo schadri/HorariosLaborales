@@ -12,15 +12,6 @@ let mockEmployees: Employee[] = [
     department: 'Operaciones',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-    legajo: '208380',
-    name: 'ANDRADE WALTER DANIEL',
-    phone: '+5491187654321',
-    department: 'Ventas',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
   }
 ];
 
