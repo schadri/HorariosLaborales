@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useLayoutEffect } from 'react';
 import { DaySchedule } from '@/lib/types';
 import { DayCard } from './DayCard';
 import { Sparkles, CalendarDays } from 'lucide-react';
@@ -15,8 +15,8 @@ interface ShortsFeedProps {
   containerRef: React.RefObject<HTMLDivElement>;
 }
 
-const REPEAT_CYCLES = 11; // 11 repetitions of the 7-day week for infinite scrolling
-const MID_CYCLE = Math.floor(REPEAT_CYCLES / 2); // Cycle 5
+const REPEAT_CYCLES = 5; // 5 repeticiones es ideal: ligero, fluido y 100% infinito
+const MID_CYCLE = Math.floor(REPEAT_CYCLES / 2); // Ciclo 2
 
 export const ShortsFeed: React.FC<ShortsFeedProps> = ({
   schedules,
@@ -26,9 +26,11 @@ export const ShortsFeed: React.FC<ShortsFeedProps> = ({
   onActiveIndexChange,
   containerRef
 }) => {
+  const [isReady, setIsReady] = useState(false);
   const isInitializedRef = useRef(false);
+  const isTeleportingRef = useRef(false);
 
-  // Generate virtual infinite array
+  // Generar lista virtual de 5 ciclos de 7 días
   const infiniteSchedules = React.useMemo(() => {
     if (schedules.length === 0) return [];
     const list: { schedule: DaySchedule; dayIndexInWeek: number; globalIndex: number }[] = [];
@@ -44,114 +46,142 @@ export const ShortsFeed: React.FC<ShortsFeedProps> = ({
     return list;
   }, [schedules]);
 
-  // Initial scroll to middle cycle on today's day
+  // Posicionamiento inicial instantáneo sin animaciones ni rebotes
   useEffect(() => {
     if (schedules.length === 0 || isInitializedRef.current) return;
     const el = containerRef.current;
     if (!el) return;
 
-    const todayIdx = schedules.findIndex(s => {
-      try {
-        return isToday(parseISO(s.date));
-      } catch {
-        return false;
-      }
-    });
-
-    const targetDayIndex = todayIdx >= 0 ? todayIdx : 0;
+    // Buscar qué día es hoy (0=Lunes, etc.) o arrancar en Lunes
+    const todayDayNumber = new Date().getDay(); // 0=Domingo, 1=Lunes...
+    const todayIdx = todayDayNumber === 0 ? 6 : todayDayNumber - 1; // 0=Lunes ... 6=Domingo
+    
+    const targetDayIndex = (todayIdx >= 0 && todayIdx < schedules.length) ? todayIdx : 0;
     const initialGlobalIndex = MID_CYCLE * schedules.length + targetDayIndex;
 
-    const initScroll = () => {
+    const applyInitialPosition = () => {
       const slideHeight = el.clientHeight;
       if (slideHeight > 0) {
+        // Desactivar scroll-snap temporalmente para posicionar al instante
+        el.style.scrollSnapType = 'none';
         el.scrollTop = initialGlobalIndex * slideHeight;
-        isInitializedRef.current = true;
-        onActiveIndexChange(targetDayIndex);
+        
+        // Reactivar scroll-snap en el siguiente frame
+        requestAnimationFrame(() => {
+          if (el) {
+            el.style.scrollSnapType = 'y mandatory';
+            isInitializedRef.current = true;
+            setIsReady(true);
+            onActiveIndexChange(targetDayIndex);
+          }
+        });
       }
     };
 
-    // Run after layout
-    setTimeout(initScroll, 50);
+    const frameId = requestAnimationFrame(applyInitialPosition);
+    return () => cancelAnimationFrame(frameId);
   }, [schedules, containerRef, onActiveIndexChange]);
 
-  // Seamless Infinite Looping scroll listener
+  // Manejo de Scroll Infinito en bucle continuo
   useEffect(() => {
     const el = containerRef.current;
     if (!el || schedules.length === 0) return;
 
-    let isAdjusting = false;
+    let scrollTimeout: NodeJS.Timeout;
 
     const handleScroll = () => {
-      if (isAdjusting) return;
+      if (isTeleportingRef.current || !isInitializedRef.current) return;
+
       const slideHeight = el.clientHeight;
       if (slideHeight <= 0) return;
 
       const currentScroll = el.scrollTop;
       const cycleHeight = schedules.length * slideHeight;
-      const minBound = 2 * cycleHeight;
-      const maxBound = (REPEAT_CYCLES - 3) * cycleHeight;
+      const minBound = 1 * cycleHeight;
+      const maxBound = (REPEAT_CYCLES - 2) * cycleHeight;
 
-      // Teleport seamlessly if approaching top boundary
+      // Teletransporte invisible al llegar al límite superior
       if (currentScroll < minBound) {
-        isAdjusting = true;
-        el.scrollTop = currentScroll + 3 * cycleHeight;
-        setTimeout(() => { isAdjusting = false; }, 50);
+        isTeleportingRef.current = true;
+        el.style.scrollSnapType = 'none';
+        el.scrollTop = currentScroll + cycleHeight;
+        requestAnimationFrame(() => {
+          el.style.scrollSnapType = 'y mandatory';
+          setTimeout(() => { isTeleportingRef.current = false; }, 30);
+        });
         return;
       }
 
-      // Teleport seamlessly if approaching bottom boundary
+      // Teletransporte invisible al llegar al límite inferior
       if (currentScroll > maxBound) {
-        isAdjusting = true;
-        el.scrollTop = currentScroll - 3 * cycleHeight;
-        setTimeout(() => { isAdjusting = false; }, 50);
+        isTeleportingRef.current = true;
+        el.style.scrollSnapType = 'none';
+        el.scrollTop = currentScroll - cycleHeight;
+        requestAnimationFrame(() => {
+          el.style.scrollSnapType = 'y mandatory';
+          setTimeout(() => { isTeleportingRef.current = false; }, 30);
+        });
         return;
       }
 
-      // Compute current active day (0 to 6)
-      const rawGlobalIndex = Math.round(currentScroll / slideHeight);
-      const dayIndexInWeek = ((rawGlobalIndex % schedules.length) + schedules.length) % schedules.length;
-      onActiveIndexChange(dayIndexInWeek);
+      // Actualizar el indicador del día activo
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        const rawGlobalIndex = Math.round(el.scrollTop / slideHeight);
+        const dayIndexInWeek = ((rawGlobalIndex % schedules.length) + schedules.length) % schedules.length;
+        onActiveIndexChange(dayIndexInWeek);
+      }, 40);
     };
 
     el.addEventListener('scroll', handleScroll, { passive: true });
-    return () => el.removeEventListener('scroll', handleScroll);
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
+    };
   }, [containerRef, schedules.length, onActiveIndexChange]);
 
   if (isLoading && schedules.length === 0) {
     return (
-      <div className="w-full h-[100dvh] flex flex-col items-center justify-center bg-[#180033] text-white">
-        <div className="w-12 h-12 rounded-full border-4 border-purple-400 border-t-transparent animate-spin mb-4" />
-        <p className="text-purple-200 font-bold text-sm">Cargando cronograma semanal...</p>
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[100dvh] bg-[#180033] text-white p-6">
+        <div className="w-14 h-14 border-4 border-purple-500/30 border-t-purple-400 rounded-full animate-spin mb-4 shadow-lg shadow-purple-500/20" />
+        <p className="text-purple-200 font-medium tracking-wide">Cargando tus horarios...</p>
       </div>
     );
   }
 
   if (schedules.length === 0) {
     return (
-      <div className="w-full h-[100dvh] flex flex-col items-center justify-center p-6 bg-[#180033] text-center">
-        <div className="w-20 h-20 rounded-3xl bg-purple-500/20 text-purple-300 flex items-center justify-center mb-5 border border-white/10">
-          <CalendarDays className="w-10 h-10" />
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-b from-[#180033] via-[#0f0022] to-[#080012] text-white p-8 text-center">
+        <div className="w-20 h-20 rounded-3xl bg-purple-900/40 border border-purple-500/30 flex items-center justify-center mb-6 shadow-2xl backdrop-blur-xl">
+          <CalendarDays className="w-10 h-10 text-purple-300" />
         </div>
-        <h2 className="text-2xl font-black text-white font-display mb-2">No hay horarios registrados</h2>
-        <p className="text-sm text-purple-200/70 max-w-xs mb-8">
-          Envía la foto de tu planilla por WhatsApp o usa el simulador para cargar la semana automáticamente.
+        <h2 className="text-3xl font-black mb-2 font-display">Sin Horarios Cargados</h2>
+        <p className="text-purple-200/70 text-sm max-w-xs mb-8">
+          Envía una foto de tu planilla por WhatsApp para que la IA la procese automáticamente.
         </p>
         <button
           onClick={onOpenOcrModal}
-          className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-white text-purple-950 font-black text-sm shadow-xl active:scale-95 transition-all"
+          className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-sm shadow-xl shadow-purple-600/30 active:scale-95 transition-all flex items-center gap-2"
         >
-          <Sparkles className="w-4 h-4 text-purple-700" />
-          <span>Simular / Subir Foto OCR</span>
+          <Sparkles className="w-4 h-4" />
+          <span>Simular Carga de Planilla</span>
         </button>
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="shorts-viewport">
-      {infiniteSchedules.map((item, idx) => (
+    <div 
+      ref={containerRef}
+      className={`shorts-container select-none transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-90'}`}
+      style={{
+        scrollSnapType: 'y mandatory',
+        scrollBehavior: 'auto' // Evita que la inicialización anime un scroll descontrolado
+      }}
+    >
+      {infiniteSchedules.map((item) => (
         <DayCard
-          key={`${item.schedule.id || item.schedule.date}-loop-${idx}`}
+          key={`card-${item.globalIndex}`}
           schedule={item.schedule}
           dayIndexInWeek={item.dayIndexInWeek}
           onEdit={onEditDay}
