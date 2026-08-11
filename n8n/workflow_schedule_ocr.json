@@ -1,0 +1,188 @@
+{
+  "name": "WhatsApp Schedule Vision OCR to PostgreSQL WebApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "schedule-image-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1e712345-0001-4000-8000-000000000001",
+      "name": "WhatsApp Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "schedule-image-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extraer el número de teléfono, la imagen (URL o Base64) y el empleado deseado\nconst body = $input.first().json.body || $input.first().json;\n\n// Soporta payloads de Evolution API, Meta Cloud API o Twilio\nconst imageUrl = body.mediaUrl || body.imageUrl || body.data?.message?.imageMessage?.url || body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.id || \"\";\nconst rawBase64 = body.base64 || body.data?.base64 || \"\";\nconst senderPhone = body.phone || body.from || body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.wa_id || \"\";\nconst caption = body.caption || body.message || body.text || \"\";\n\n// Si el usuario escribe el nombre en el caption lo usa, si no, usa el predeterminado \"SCHUSTER ADRIAN\"\nlet targetEmployee = \"SCHUSTER ADRIAN\";\nif (caption.trim().length > 3 && !caption.toLowerCase().includes(\"http\")) {\n  targetEmployee = caption.trim().toUpperCase();\n}\n\nreturn [{\n  json: {\n    imageUrl,\n    rawBase64,\n    senderPhone,\n    targetEmployee,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1e712345-0002-4000-8000-000000000002",
+      "name": "Extract & Filter Employee",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Eres un asistente experto en OCR y visión computacional para extracción de planillas de horarios laborales. Tu tarea es analizar la imagen y extraer los horarios de los 7 días de la semana EXCLUSIVAMENTE para el empleado indicado. Ignora todas las demás filas. Debes responder con un JSON válido estrictamente estructurado.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"Analiza la tabla de horarios de la imagen adjunta. Busca la fila correspondiente al empleado '\" + $json.targetEmployee + \"'. Ignora las demás filas. Extrae los horarios de los 7 días de la semana para esta persona.\\n\\nEsquema de salida JSON requerido:\\n{\\n  \\\"empleado\\\": \\\"\" + $json.targetEmployee + \"\\\",\\n  \\\"legajo\\\": \\\"número de legajo si es visible o null\\\",\\n  \\\"semana\\\": [\\n    { \\\"dia_semana\\\": \\\"Lunes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:30 A 18:30\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Martes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Miércoles\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Jueves\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"14:00 A 22:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Viernes\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:00 A 18:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Sábado\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"10:00 A 18:00\\\", \\\"franco\\\": false },\\n    { \\\"dia_semana\\\": \\\"Domingo\\\", \\\"fecha\\\": \\\"YYYY-MM-DD\\\", \\\"horario\\\": \\\"LIBRE\\\", \\\"franco\\\": true }\\n  ]\\n}\\nSi el turno dice FRANCO, LIBRE o está vacío/marcado con descanso, coloca franco: true y horario: 'LIBRE'.\"\n        },\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": $json.imageUrl || (\"data:image/jpeg;base64,\" + $json.rawBase64)\n          }\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 1000\n}"
+      },
+      "id": "1e712345-0003-4000-8000-000000000003",
+      "name": "OpenAI Vision OCR Node",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalizar respuesta de OpenAI y preparar payload para la API Next.js\nconst rawContent = $input.first().json.choices?.[0]?.message?.content || \"{}\";\nconst parsed = JSON.parse(rawContent);\n\nconst employeeName = parsed.empleado || \"SCHUSTER ADRIAN\";\nconst legajo = parsed.legajo || \"208376\";\nconst semana = parsed.semana || [];\n\n// Obtener fechas normalizadas\nconst normalizedDays = semana.map(item => {\n  let startTime = null;\n  let endTime = null;\n  \n  if (!item.franco && item.horario && item.horario.toLowerCase() !== 'libre') {\n    // Extraer horas ej: '10:30 A 18:30' o '14:00-22:00'\n    const matches = item.horario.match(/(\\d{1,2}:\\d{2})/g);\n    if (matches && matches.length >= 2) {\n      startTime = matches[0];\n      endTime = matches[1];\n    }\n  }\n\n  return {\n    date: item.fecha,\n    dayName: item.dia_semana,\n    timeRange: item.horario || (item.franco ? 'LIBRE' : '10:00 A 18:00'),\n    startTime: startTime,\n    endTime: endTime,\n    isDayOff: Boolean(item.franco || item.horario?.toUpperCase() === 'LIBRE'),\n    notes: null,\n    source: 'OCR_WHATSAPP'\n  };\n});\n\nreturn [{\n  json: {\n    employeeName,\n    legajo,\n    days: normalizedDays,\n    senderPhone: $('Extract & Filter Employee').first().json.senderPhone\n  }\n}];"
+      },
+      "id": "1e712345-0004-4000-8000-000000000004",
+      "name": "Parse & Validate JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}}/api/schedules/batch",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.N8N_API_SECRET || 'sec_n8n_schedules_2026_x89'}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"employeeName\": \"{{$json.employeeName}}\",\n  \"legajo\": \"{{$json.legajo}}\",\n  \"days\": {{JSON.stringify($json.days)}}\n}"
+      },
+      "id": "1e712345-0005-4000-8000-000000000005",
+      "name": "Upsert to PostgreSQL API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Horarios procesados y guardados correctamente\",\n  \"employee\": \"{{$json.employeeName}}\",\n  \"totalDays\": {{$json.days.length}},\n  \"webAppUrl\": \"{{$env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}}/?empleado={{encodeURIComponent($json.employeeName)}}\"\n}",
+        "options": {}
+      },
+      "id": "1e712345-0006-4000-8000-000000000006",
+      "name": "Respond to Webhook / WhatsApp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1420,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "WhatsApp Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract & Filter Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract & Filter Employee": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Vision OCR Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Vision OCR Node": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate JSON": {
+      "main": [
+        [
+          {
+            "node": "Upsert to PostgreSQL API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert to PostgreSQL API": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook / WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
