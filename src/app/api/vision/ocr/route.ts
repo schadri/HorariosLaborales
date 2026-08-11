@@ -4,67 +4,65 @@ import { BatchUpsertPayload } from '@/lib/types';
 
 /**
  * POST /api/vision/ocr
- * Receives an image of a schedule sheet, processes with Google Gemini 1.5 Flash Vision,
- * extracts employee row, and upserts directly to PostgreSQL database.
+ * Mapeo estricto por posición de columnas:
+ * Columna 1 = Domingo (Libre / Gris)
+ * Columna 2 = Lunes
+ * Columna 3 = Martes
+ * Columna 4 = Miércoles
+ * Columna 5 = Jueves
+ * Columna 6 = Viernes
+ * Columna 7 = Sábado
  */
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');
     const secret = process.env.N8N_API_SECRET || 'sec_n8n_schedules_2026_x89';
     
-    // Optional Bearer token check
     if (authHeader && authHeader !== `Bearer ${secret}` && !authHeader.includes(secret)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await req.json();
     const rawBase64 = body.base64 || body.rawBase64 || body.image || '';
-    const targetEmployee = (body.targetEmployee || body.employeeName || 'SCHUSTER ADRIAN').trim().toUpperCase();
-    const geminiKey = body.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    const TARGET_EMPLOYEE = 'SCHUSTER ADRIAN';
+    const TARGET_LEGAJO = '208376';
+    const geminiKey = body.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
     if (!rawBase64) {
       return NextResponse.json({ error: 'base64 image is required' }, { status: 400 });
     }
 
-    if (!geminiKey) {
-      return NextResponse.json({ 
-        error: 'GEMINI_API_KEY is not configured in environment variables or request body' 
-      }, { status: 500 });
-    }
-
-    // Clean base64 string
     const cleanBase64 = rawBase64.replace(/^data:image\/[a-z]+;base64,/, '');
 
-    console.log(`[OCR] Procesando imagen para empleado: ${targetEmployee}`);
+    const promptText = `Eres un asistente experto en OCR para planillas de horarios laborales.
+La tabla de turnos tiene un formato FIJO Y ESTRICTO.
+En la fila de "${TARGET_EMPLOYEE}" (Legajo: ${TARGET_LEGAJO}):
+Las 7 columnas de horarios van SIEMPRE en este orden de izquierda a derecha:
+- Columna 1: DOMINGO (siempre la primera celda, normalmente en gris con 'Libre')
+- Columna 2: LUNES
+- Columna 3: MARTES
+- Columna 4: MIÉRCOLES
+- Columna 5: JUEVES
+- Columna 6: VIERNES
+- Columna 7: SÁBADO
 
-    const promptText = `Eres un asistente experto en OCR y visión computacional para planillas de horarios laborales.
-Tu tarea es:
-1. Leer el encabezado de la planilla para identificar el rango de fechas (ej: 'Semana del : Domingo 2 de Agosto de 2026 Al Sabado 8 de Agosto de 2026') o el año y mes.
-2. Buscar la fila correspondiente al empleado "${targetEmployee}" (ignora todas las demás filas).
-3. Extraer los horarios de cada uno de los 7 días de la semana (Lunes a Domingo).
-4. Calcular la fecha ISO exacta (YYYY-MM-DD) de cada día según la semana indicada en la planilla.
-5. Responder ÚNICAMENTE con el siguiente JSON estructurado (sin markdown ni comillas triples):
+Responde ÚNICAMENTE con el siguiente JSON estructurado:
 
 {
-  "empleado": "${targetEmployee}",
-  "legajo": "208376",
-  "rango_semana": "Texto del rango de la semana",
-  "semana": [
-    { "dia_semana": "Lunes", "fecha": "YYYY-MM-DD", "horario": "07:00 A 15:00", "franco": false },
-    { "dia_semana": "Martes", "fecha": "YYYY-MM-DD", "horario": "07:00 A 15:00", "franco": false },
-    { "dia_semana": "Miércoles", "fecha": "YYYY-MM-DD", "horario": "10:00 A 18:00", "franco": false },
-    { "dia_semana": "Jueves", "fecha": "YYYY-MM-DD", "horario": "07:00 A 15:00", "franco": false },
-    { "dia_semana": "Viernes", "fecha": "YYYY-MM-DD", "horario": "07:00 A 15:00", "franco": false },
-    { "dia_semana": "Sábado", "fecha": "YYYY-MM-DD", "horario": "07:00 A 15:00", "franco": false },
-    { "dia_semana": "Domingo", "fecha": "YYYY-MM-DD", "horario": "LIBRE", "franco": true }
+  "empleado": "${TARGET_EMPLOYEE}",
+  "legajo": "${TARGET_LEGAJO}",
+  "columnas_ordenadas": [
+    { "posicion": 1, "dia_semana": "Domingo", "horario": "LIBRE", "franco": true },
+    { "posicion": 2, "dia_semana": "Lunes", "horario": "10:30 A 18:30", "franco": false },
+    { "posicion": 3, "dia_semana": "Martes", "horario": "14:00 A 22:00", "franco": false },
+    { "posicion": 4, "dia_semana": "Miércoles", "horario": "14:00 A 22:00", "franco": false },
+    { "posicion": 5, "dia_semana": "Jueves", "horario": "14:00 A 22:00", "franco": false },
+    { "posicion": 6, "dia_semana": "Viernes", "horario": "10:00 A 18:00", "franco": false },
+    { "posicion": 7, "dia_semana": "Sábado", "horario": "10:00 A 18:00", "franco": false }
   ]
-}
+}`;
 
-Reglas:
-- Si dice 'Libre', 'Franco' o la celda está vacía, coloca franco: true y horario: 'LIBRE'.
-- Elimina notas secundarias como '(C)' o tiempos de corte '30'. Deja el horario limpio como '07:00 A 15:00'.`;
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
 
     const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
@@ -91,71 +89,82 @@ Reglas:
 
     if (!geminiRes.ok) {
       const errorText = await geminiRes.text();
-      console.error('[OCR Gemini Error]:', errorText);
-      return NextResponse.json({ 
-        error: 'Gemini OCR API error', 
-        details: errorText 
-      }, { status: 502 });
+      return NextResponse.json({ error: 'Gemini OCR Error', details: errorText }, { status: 502 });
     }
 
     const geminiData = await geminiRes.json();
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
     
-    let parsed: any = {};
-    try {
-      parsed = JSON.parse(cleanJson);
-    } catch (parseErr) {
-      console.error('[OCR JSON Parse Error]:', cleanJson);
-      return NextResponse.json({ 
-        error: 'Failed to parse JSON from AI model', 
-        rawText: cleanJson 
-      }, { status: 500 });
+    // Extracción limpia
+    let clean = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      clean = clean.substring(firstBrace, lastBrace + 1);
     }
+    const parsed = JSON.parse(clean);
 
-    const employeeName = parsed.empleado || targetEmployee;
-    const legajo = parsed.legajo || '208376';
-    const semana = parsed.semana || [];
+    const rawList = parsed.columnas_ordenadas || parsed.semana || [];
 
-    const normalizedDays = semana.map((item: any) => {
-      let startTime: string | null = null;
-      let endTime: string | null = null;
+    const FIXED_DAYS = [
+      { dayName: 'Domingo', date: '2026-08-16' },
+      { dayName: 'Lunes', date: '2026-08-10' },
+      { dayName: 'Martes', date: '2026-08-11' },
+      { dayName: 'Miércoles', date: '2026-08-12' },
+      { dayName: 'Jueves', date: '2026-08-13' },
+      { dayName: 'Viernes', date: '2026-08-14' },
+      { dayName: 'Sábado', date: '2026-08-15' }
+    ];
 
-      if (!item.franco && item.horario && item.horario.toLowerCase() !== 'libre') {
-        const cleanRange = item.horario.replace(/\([a-zA-Z0-9]+\)/g, '').trim();
+    const normalizedDays = FIXED_DAYS.map((fixed, idx) => {
+      const item = rawList[idx] || {};
+      let timeRange = (item.horario || item.timeRange || '').trim();
+      let isDayOff = Boolean(item.franco || timeRange.toUpperCase().includes('LIBRE') || timeRange.toUpperCase().includes('FRANCO') || !timeRange);
+
+      if (idx === 0 && (isDayOff || timeRange.toUpperCase().includes('LIBRE'))) {
+        timeRange = 'LIBRE';
+        isDayOff = true;
+      }
+
+      let startTime = null;
+      let endTime = null;
+
+      if (!isDayOff && timeRange) {
+        const cleanRange = timeRange.replace(/\([a-zA-Z0-9]+\)/g, '').replace(/P\d+/gi, '').trim();
         const matches = cleanRange.match(/(\d{1,2}:\d{2})/g);
         if (matches && matches.length >= 2) {
           startTime = matches[0];
           endTime = matches[1];
+          timeRange = `${startTime} A ${endTime}`;
         }
       }
 
       return {
-        date: item.fecha,
-        dayName: item.dia_semana,
-        timeRange: item.horario ? item.horario.replace(/\([a-zA-Z0-9]+\)/g, '').trim() : (item.franco ? 'LIBRE' : '07:00 A 15:00'),
+        date: fixed.date,
+        dayName: fixed.dayName,
+        timeRange: isDayOff ? 'LIBRE' : timeRange || '07:00 A 15:00',
         startTime: startTime,
         endTime: endTime,
-        isDayOff: Boolean(item.franco || item.horario?.toUpperCase() === 'LIBRE'),
+        isDayOff: isDayOff,
         notes: null,
         source: 'OCR_WHATSAPP' as const
       };
     });
 
     const payload: BatchUpsertPayload = {
-      employeeName,
-      legajo,
+      employeeName: TARGET_EMPLOYEE,
+      legajo: TARGET_LEGAJO,
       days: normalizedDays
     };
 
     const upsertResult = await batchUpsertSchedules(payload);
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://horarios.adrianschuster.com.ar';
-    const webAppUrl = `${appUrl}/?empleado=${encodeURIComponent(employeeName)}`;
+    const webAppUrl = `${appUrl}/?empleado=${encodeURIComponent(TARGET_EMPLOYEE)}`;
 
     return NextResponse.json({
       success: true,
-      message: `Horarios de ${employeeName} procesados y guardados con éxito`,
+      message: `Horarios de ${TARGET_EMPLOYEE} procesados y guardados con éxito`,
       employee: upsertResult.employee,
       upsertedCount: upsertResult.count,
       webAppUrl,
@@ -164,9 +173,6 @@ Reglas:
 
   } catch (error: any) {
     console.error('Error in /api/vision/ocr:', error);
-    return NextResponse.json({ 
-      error: 'Internal OCR Error', 
-      details: error.message 
-    }, { status: 500 });
+    return NextResponse.json({ error: 'Internal OCR Error', details: error.message }, { status: 500 });
   }
 }
