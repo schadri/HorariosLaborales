@@ -150,9 +150,8 @@ Reglas:
 
     const upsertResult = await batchUpsertSchedules(payload);
 
-    const firstDate = normalizedDays[0]?.date || '';
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://horarios.adrianschuster.com.ar';
-    const webAppUrl = `${appUrl}/?empleado=${encodeURIComponent(employeeName)}${firstDate ? `&fecha=${firstDate}` : ''}`;
+    const webAppUrl = `${appUrl}/?empleado=${encodeURIComponent(employeeName)}`;
 
     return NextResponse.json({
       success: true,
